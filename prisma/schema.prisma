@@ -1,12 +1,13 @@
-// Prism — full schema (Phase 2: auth, connections, user-scoped data)
-// SQLite for local dev; switch datasource to PostgreSQL for production.
+// Prism — full schema
+// PostgreSQL. For local dev use Docker (`docker run -p 5432:5432 -e POSTGRES_PASSWORD=prism postgres:16`)
+// or a free Neon / Supabase / Vercel Postgres branch.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
