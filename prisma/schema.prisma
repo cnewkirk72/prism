@@ -1,0 +1,409 @@
+// Prism — full schema (Phase 2: auth, connections, user-scoped data)
+// SQLite for local dev; switch datasource to PostgreSQL for production.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Auth (NextAuth / Auth.js standard models)
+// ────────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  /// bcrypt hash; null when user only authenticates via OAuth
+  passwordHash  String?
+  bio           String?
+  /// e.g. "@christian"
+  handle        String?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  platformConnections PlatformConnection[]
+
+  posts               Post[]
+  sounds              Sound[]
+  inspirations        Inspiration[]
+  ideas               Idea[]
+  contentPlans        ContentPlan[]
+  colorPalettes       ColorPalette[]
+  goals               Goal[]
+  affiliatePrograms   AffiliateProgram[]
+  actionItems         ActionItem[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Platform connections (TikTok, Instagram OAuth tokens)
+// ────────────────────────────────────────────────────────────────────────────────
+
+enum ConnectionPlatform {
+  TIKTOK
+  INSTAGRAM
+}
+
+model PlatformConnection {
+  id            String             @id @default(cuid())
+  userId        String
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform      ConnectionPlatform
+
+  /// Platform's user ID (e.g. TikTok openId, IG user id)
+  externalId    String
+  externalHandle String?
+  externalName   String?
+  externalAvatar String?
+
+  /// Encrypted access token
+  accessToken   String
+  refreshToken  String?
+  /// Unix seconds when access token expires
+  expiresAt     Int?
+  scope         String?
+
+  followerCount Int?
+  postCount     Int?
+
+  connectedAt   DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastSyncedAt  DateTime?
+  syncError     String?
+
+  @@unique([userId, platform])
+  @@index([userId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Posts (TikTok + Instagram)
+// ────────────────────────────────────────────────────────────────────────────────
+
+enum Platform {
+  TIKTOK
+  INSTAGRAM
+}
+
+enum IGFormat {
+  REEL
+  CAROUSEL
+  PHOTO
+  STORY
+}
+
+model Post {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform     Platform
+  externalId   String?
+  caption      String
+  thumbnailUrl String
+  /// Direct link to the post on the platform
+  permalink    String?
+  postedAt     DateTime
+  durationSec  Int?
+  igFormat     IGFormat?
+
+  views        Int      @default(0)
+  likes        Int      @default(0)
+  comments     Int      @default(0)
+  shares       Int      @default(0)
+  saves        Int      @default(0)
+
+  categoryId   String?
+  category     Category? @relation(fields: [categoryId], references: [id])
+
+  hashtags     PostHashtag[]
+  soundId      String?
+  sound        Sound?    @relation(fields: [soundId], references: [id])
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, platform, externalId])
+  @@index([userId, platform, postedAt])
+  @@index([categoryId])
+}
+
+model Category {
+  id    String  @id @default(cuid())
+  name  String  @unique
+  color String
+  posts Post[]
+}
+
+model Hashtag {
+  id    String        @id @default(cuid())
+  tag   String        @unique
+  posts PostHashtag[]
+}
+
+model PostHashtag {
+  postId    String
+  hashtagId String
+  post      Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  hashtag   Hashtag @relation(fields: [hashtagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, hashtagId])
+  @@index([hashtagId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Create — Sounds, Inspiration, Ideas, Content Plan, Color Plan
+// ────────────────────────────────────────────────────────────────────────────────
+
+enum SoundStatus {
+  SAVED
+  TO_FILM
+  USED
+  SKIPPED
+}
+
+model Sound {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String
+  artist        String?
+  platform      Platform
+  exampleUrl    String?
+  thumbnailUrl  String
+  status        SoundStatus @default(SAVED)
+  savedAt       DateTime    @default(now())
+
+  posts         Post[]
+  checklistRefs ChecklistItemSound[]
+
+  @@index([userId, status])
+}
+
+model Inspiration {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceUrl     String
+  platform      Platform
+  thumbnailUrl  String
+  note          String?
+  tags          InspirationTag[]
+  savedAt       DateTime @default(now())
+  checklistRefs ChecklistItemInspiration[]
+
+  @@index([userId, savedAt])
+}
+
+model InspirationTag {
+  id            String        @id @default(cuid())
+  name          String        @unique
+  inspirations  Inspiration[]
+}
+
+enum IdeaStatus {
+  SPARK
+  DRAFTED
+  READY
+  FILMED
+  POSTED
+}
+
+model Idea {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  status       IdeaStatus @default(SPARK)
+  /// CSV of category names
+  categoryTags String?
+  position     Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([userId, status, position])
+}
+
+enum ContentPlanPhase {
+  BEFORE
+  DURING
+  AFTER
+}
+
+model ContentPlan {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  shootDate   DateTime?
+  notes       String?
+  items       ChecklistItem[]
+  createdAt   DateTime        @default(now())
+
+  @@index([userId, shootDate])
+}
+
+model ChecklistItem {
+  id            String           @id @default(cuid())
+  contentPlanId String
+  contentPlan   ContentPlan      @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
+  phase         ContentPlanPhase
+  title         String
+  done          Boolean          @default(false)
+  position      Int              @default(0)
+  sounds        ChecklistItemSound[]
+  inspirations  ChecklistItemInspiration[]
+
+  @@index([contentPlanId, phase, position])
+}
+
+model ChecklistItemSound {
+  checklistItemId String
+  soundId         String
+  checklistItem   ChecklistItem @relation(fields: [checklistItemId], references: [id], onDelete: Cascade)
+  sound           Sound         @relation(fields: [soundId], references: [id], onDelete: Cascade)
+
+  @@id([checklistItemId, soundId])
+}
+
+model ChecklistItemInspiration {
+  checklistItemId String
+  inspirationId   String
+  checklistItem   ChecklistItem @relation(fields: [checklistItemId], references: [id], onDelete: Cascade)
+  inspiration     Inspiration   @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
+
+  @@id([checklistItemId, inspirationId])
+}
+
+model ColorPalette {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  /// Optional shoot/aesthetic tag, e.g. "Coachella W2"
+  tag         String?
+  /// Reference image URL
+  referenceUrl String?
+  swatches    ColorSwatch[]
+  createdAt   DateTime      @default(now())
+
+  @@index([userId])
+}
+
+model ColorSwatch {
+  id          String       @id @default(cuid())
+  paletteId   String
+  palette     ColorPalette @relation(fields: [paletteId], references: [id], onDelete: Cascade)
+  /// Hex like "#A855F7"
+  hex         String
+  /// outfit | set | accent | grade | hair | other
+  role        String       @default("accent")
+  position    Int          @default(0)
+
+  @@index([paletteId, position])
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Brand — Affiliate programs, Action items, Goals
+// ────────────────────────────────────────────────────────────────────────────────
+
+enum AffiliateStatus {
+  TO_APPLY
+  APPLIED
+  APPROVED
+  REJECTED
+  ACTIVE
+  PAUSED
+}
+
+model AffiliateProgram {
+  id             String          @id @default(cuid())
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand          String
+  programName    String
+  /// Commission rate in basis points (e.g. 1000 = 10%)
+  commissionBps  Int?
+  commissionNote String?
+  status         AffiliateStatus @default(TO_APPLY)
+  appliedAt      DateTime?
+  approvedAt     DateTime?
+  link           String?
+
+  @@index([userId, status])
+}
+
+model ActionItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  done      Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId, done, position])
+}
+
+enum GoalKind {
+  FOLLOWERS_TIKTOK
+  FOLLOWERS_INSTAGRAM
+  VIEWS_MONTHLY
+  REVENUE_MONTHLY
+}
+
+model Goal {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       GoalKind
+  target     Int
+  current    Int      @default(0)
+  targetDate DateTime?
+  notes      String?
+
+  @@index([userId])
+}
